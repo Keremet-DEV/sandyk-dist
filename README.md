@@ -9,8 +9,8 @@ docker run -d --name sandyk --restart unless-stopped \
 ```
 
 Instructions — installing with Docker, docker compose or Home Assistant, the first account,
-access from outside, backups and updates: https://sandyk.app/en/server/ (по-русски:
-https://sandyk.app/server/).
+access from outside, backups and updates: https://sandyk.app/server/ (по-русски:
+https://sandyk.app/ru/server/).
 
 Platforms: `linux/amd64`, `linux/arm64`, `linux/arm/v7`. Tags: the version (`0.3.0`) and
 `latest` for the newest one.

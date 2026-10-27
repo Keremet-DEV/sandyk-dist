@@ -73,7 +73,7 @@ jobs:
               --platform linux/amd64,linux/arm64,linux/arm/v7 \
               --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
               --label "org.opencontainers.image.description=Sandyk server: photo, video and file backup from phones" \
-              --label "org.opencontainers.image.url=https://sandyk.app/en/server/" \
+              --label "org.opencontainers.image.url=https://sandyk.app/server/" \
               --label "org.opencontainers.image.version=$v" \
               "${tags[@]}" -
             echo "published $TARGET:$v"
