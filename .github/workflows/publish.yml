@@ -1,0 +1,86 @@
+name: Publish
+
+# Republishes each release of the private image ghcr.io/keremet-dev/sandyk-server as the public
+# ghcr.io/keremet-dev/sandyk: a thin image (FROM the release + a label linking it to this public
+# repository, which makes the package public). Checks hourly; "Run workflow" to do it now.
+# Needs: this repository has Read access to the sandyk-server package (its Package settings →
+# Manage Actions access). GitHub-hosted runners: this repository is public.
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Republish this version even if it is already there (e.g. 0.3.0)
+        required: false
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+env:
+  SOURCE: ghcr.io/keremet-dev/sandyk-server
+  TARGET: ghcr.io/keremet-dev/sandyk
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Versions to publish
+        id: todo
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCE: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          tags() { # semver tags of an image, newest last
+            local repo=${1#ghcr.io/} t
+            t=$(curl -fsS -u "x:$TOKEN" "https://ghcr.io/token?service=ghcr.io&scope=repository:$repo:pull" | jq -r .token) || return 0
+            curl -fsS -H "Authorization: Bearer $t" "https://ghcr.io/v2/$repo/tags/list?n=1000" \
+              | jq -r '.tags // [] | .[]' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V || true
+          }
+          src=$(tags "$SOURCE")
+          [ -n "$src" ] || { echo "::error::cannot list $SOURCE: give this repository Read access to the package"; exit 1; }
+          have=$(tags "$TARGET")
+          todo=$(comm -23 <(echo "$src" | sort) <(echo "$have" | sort) | sort -V | tr '\n' ' ')
+          [ -n "$FORCE" ] && todo="$FORCE"
+          echo "source: $(echo $src) / published: $(echo $have) / to do: ${todo:-nothing}"
+          echo "versions=$todo" >> "$GITHUB_OUTPUT"
+          echo "newest=$(echo "$src" | tail -1)" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+        if: steps.todo.outputs.versions != ''
+      - name: Publish
+        if: steps.todo.outputs.versions != ''
+        env:
+          VERSIONS: ${{ steps.todo.outputs.versions }}
+          NEWEST: ${{ steps.todo.outputs.newest }}
+        run: |
+          set -euo pipefail
+          for v in $VERSIONS; do
+            tags=(-t "$TARGET:$v")
+            [ "$v" = "$NEWEST" ] && tags+=(-t "$TARGET:latest")
+            # No RUN step: nothing executes, so every platform builds without emulation.
+            printf 'FROM %s:%s\n' "$SOURCE" "$v" | docker buildx build --push \
+              --platform linux/amd64,linux/arm64,linux/arm/v7 \
+              --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+              --label "org.opencontainers.image.description=Sandyk server: photo, video and file backup from phones" \
+              --label "org.opencontainers.image.url=https://sandyk.app/en/server/" \
+              --label "org.opencontainers.image.version=$v" \
+              "${tags[@]}" -
+            echo "published $TARGET:$v"
+          done
+      - name: Anyone can pull it
+        if: steps.todo.outputs.versions != ''
+        run: |
+          set -euo pipefail
+          docker logout ghcr.io
+          docker buildx imagetools inspect "$TARGET:${{ steps.todo.outputs.newest }}" | head -20
